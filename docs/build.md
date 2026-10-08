@@ -42,6 +42,13 @@ cmake --build build --config Release
 **Notes**:
 
 - For faster compilation, add the `-j` argument to run multiple jobs in parallel, or use a generator that does this automatically such as Ninja. For example, `cmake --build build --config Release -j 8` will run 8 jobs in parallel.
+- To list the CPU features the ggml CPU backend detected, without loading a model:
+
+  ```bash
+  ./build/bin/llama-cli --cpu-features
+  ```
+
+  Output is one feature per line, `NAME: yes` or `NAME: no`. On AArch64 this includes `NEON`, `ARM_FMA`, `FP16_VA` (FP16 vector arithmetic), `DOTPROD`, `MATMUL_INT8` (i8mm), `SVE`, `SME`, and `KLEIDIAI` (compiled in or not). `SVE_CNT` is the SVE vector length in bytes, printed only when ggml reports it. On x86 the list is the features ggml already knows (`AVX`, `AVX2`, `AVX512`, and the rest). `llama-bench --cpu-features` prints the same list.
 - For faster repeated compilation, install [ccache](https://ccache.dev/)
 - For debug builds, there are two cases:
 
@@ -700,6 +707,12 @@ The Android Studio project under `examples/llama.android` enables KleidiAI autom
 Global -march flags such as `-march=armv8.7a` flag are not required for a portable Android `arm64-v8a` build. Global `-march` flags raise the baseline instruction set for generic code. No manual architecture-specific source selection is required; llama.cpp selects compatible KleidiAI kernels at runtime. The KleidiAI libraries internal CMake handles the -march flags for each particular kernel.
 
 ### Verifying the build
+
+List detected CPU features, including whether KleidiAI was compiled in (`KLEIDIAI: yes` or `KLEIDIAI: no`), without a model:
+
+```bash
+./build/bin/llama-cli --cpu-features
+```
 
 Run an installed or in-tree binary:
 

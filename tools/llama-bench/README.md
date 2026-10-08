@@ -24,6 +24,7 @@ usage: llama-bench [options]
 
 options:
   -h, --help
+  --cpu-features                            print CPU features detected by ggml and exit
   --numa <distribute|isolate|numactl>       numa mode (default: disabled)
   -r, --repetitions <n>                     number of times to repeat each test (default: 5)
   --prio <-1|0|1|2|3>                       process/thread priority (default: 0)

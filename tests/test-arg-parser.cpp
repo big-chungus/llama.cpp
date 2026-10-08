@@ -363,6 +363,66 @@ static void test(void) {
     assert(params.cpuparams.n_threads == 1010);
 #endif // _WIN32
 
+    printf("test-arg-parser: test --cpu-features registration and output\n\n");
+    {
+        auto has_arg = [](llama_example ex, const char * name) {
+            common_params p;
+            auto ctx = common_params_parser_init(p, ex);
+            for (const auto & opt : ctx.options) {
+                for (const auto & arg : opt.get_args()) {
+                    if (arg == name) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        assert(has_arg(LLAMA_EXAMPLE_COMMON, "--cpu-features"));
+        assert(has_arg(LLAMA_EXAMPLE_CLI, "--cpu-features"));
+
+        const std::string text = common_cpu_features_text();
+        std::istringstream in(text);
+        std::unordered_set<std::string> names;
+        std::string line;
+        while (std::getline(in, line)) {
+            assert(!line.empty());
+            const size_t colon = line.find(": ");
+            assert(colon != std::string::npos && colon > 0);
+            for (size_t i = 0; i < colon; ++i) {
+                const char c = line[i];
+                const bool ok = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+                assert(ok);
+            }
+
+            const std::string value = line.substr(colon + 2);
+            const bool yes_no = value == "yes" || value == "no";
+            if (!yes_no) {
+                assert(!value.empty());
+                for (char c : value) {
+                    assert(c >= '0' && c <= '9');
+                }
+            }
+            names.insert(line.substr(0, colon));
+        }
+        assert(!names.empty());
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+        assert(names.count("AVX") == 1);
+        assert(names.count("AVX2") == 1);
+        assert(names.count("AVX512") == 1);
+#elif defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
+        assert(names.count("NEON") == 1);
+        assert(names.count("ARM_FMA") == 1);
+        assert(names.count("FP16_VA") == 1);
+        assert(names.count("DOTPROD") == 1);
+        assert(names.count("MATMUL_INT8") == 1);
+        assert(names.count("SVE") == 1);
+        assert(names.count("SME") == 1);
+        assert(names.count("SME2") == 1);
+        assert(names.count("KLEIDIAI") == 1);
+#endif
+    }
+
     printf("test-arg-parser: test download functions\n\n");
     const char * GOOD_URL = "http://ggml.ai/";
     const char * BAD_URL  = "http://ggml.ai/404";
