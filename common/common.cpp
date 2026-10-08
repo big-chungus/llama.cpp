@@ -31,6 +31,7 @@
 #include <string>
 #include <thread>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #if defined(__APPLE__) && defined(__MACH__)
@@ -419,6 +420,114 @@ void common_params_print_info(const common_params & params, bool print_devices) 
         }
     }
     COM_TRC("%s\n", common_params_get_system_info(params).c_str());
+}
+
+static std::vector<std::pair<std::string, std::string>> cpu_backend_feature_list() {
+    std::vector<std::pair<std::string, std::string>> feats;
+
+    if (ggml_backend_reg_count() == 0) {
+        ggml_backend_load_all();
+    }
+
+    for (size_t i = 0; i < ggml_backend_reg_count(); ++i) {
+        ggml_backend_reg_t reg = ggml_backend_reg_get(i);
+        if (strcmp(ggml_backend_reg_name(reg), "CPU") != 0) {
+            continue;
+        }
+
+        auto * get_features = (ggml_backend_get_features_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_get_features");
+        if (get_features == nullptr) {
+            break;
+        }
+
+        ggml_backend_feature * f = get_features(reg);
+        if (f == nullptr) {
+            break;
+        }
+        for (; f->name != nullptr; ++f) {
+            feats.emplace_back(f->name, f->value != nullptr ? f->value : "");
+        }
+        break;
+    }
+
+    return feats;
+}
+
+static const char * cpu_feature_value(const std::vector<std::pair<std::string, std::string>> & feats, const char * name) {
+    for (const auto & feat : feats) {
+        if (feat.first == name) {
+            return feat.second.c_str();
+        }
+    }
+    return nullptr;
+}
+
+static void print_cpu_feature_yes_no(FILE * out, const std::vector<std::pair<std::string, std::string>> & feats, const char * name) {
+    const char * value = cpu_feature_value(feats, name);
+    const bool yes = value != nullptr && value[0] != '\0' && strcmp(value, "0") != 0;
+    fprintf(out, "%s: %s\n", name, yes ? "yes" : "no");
+}
+
+static void print_cpu_feature_names(FILE * out, const std::vector<std::pair<std::string, std::string>> & feats, const char * const * names, size_t n_names) {
+    for (size_t i = 0; i < n_names; ++i) {
+        print_cpu_feature_yes_no(out, feats, names[i]);
+        // SVE vector length in bytes; ggml only reports it when the length is known
+        if (strcmp(names[i], "SVE") == 0) {
+            const char * sve_cnt = cpu_feature_value(feats, "SVE_CNT");
+            if (sve_cnt != nullptr && sve_cnt[0] != '\0' && strcmp(sve_cnt, "0") != 0) {
+                fprintf(out, "SVE_CNT: %s\n", sve_cnt);
+            }
+        }
+    }
+}
+
+void common_print_cpu_features(FILE * out) {
+    if (out == nullptr) {
+        out = stdout;
+    }
+
+    const auto feats = cpu_backend_feature_list();
+
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
+    static const char * names[] = {
+        "NEON", "ARM_FMA", "FP16_VA", "DOTPROD", "MATMUL_INT8", "SVE", "SME", "SME2", "KLEIDIAI",
+    };
+    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    static const char * names[] = {
+        "SSE3", "SSSE3", "AVX", "AVX_VNNI", "AVX2", "F16C", "FMA", "BMI2",
+        "AVX512", "AVX512_VBMI", "AVX512_VNNI", "AVX512_BF16", "AMX_INT8",
+    };
+    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__riscv)
+    static const char * names[] = { "RISCV_V" };
+    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+    const char * rvv_vlen = cpu_feature_value(feats, "RVV_VLEN");
+    if (rvv_vlen != nullptr && rvv_vlen[0] != '\0' && strcmp(rvv_vlen, "0") != 0) {
+        fprintf(out, "RVV_VLEN: %s\n", rvv_vlen);
+    }
+#elif defined(__POWERPC__) || defined(__powerpc__) || defined(__ppc__) || defined(__PPC__)
+    static const char * names[] = { "VSX", "VXE" };
+    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__s390x__)
+    static const char * names[] = { "VXE" };
+    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__wasm_simd128__) || defined(__wasm__)
+    static const char * names[] = { "WASM_SIMD" };
+    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#else
+    for (const auto & feat : feats) {
+        if (feat.second == "1") {
+            fprintf(out, "%s: yes\n", feat.first.c_str());
+        } else if (feat.second == "0" || feat.second.empty()) {
+            fprintf(out, "%s: no\n", feat.first.c_str());
+        } else {
+            fprintf(out, "%s: %s\n", feat.first.c_str(), feat.second.c_str());
+        }
+    }
+#endif
+
+    fflush(out);
 }
 
 std::string common_params_get_system_info(const common_params & params) {

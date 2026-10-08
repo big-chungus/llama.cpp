@@ -5,6 +5,8 @@
 #include "speculative.h"
 
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <limits>
 #include <string>
 #include <vector>
@@ -362,6 +364,73 @@ static void test(void) {
     assert(params.model.path == "overwritten.gguf");
     assert(params.cpuparams.n_threads == 1010);
 #endif // _WIN32
+
+    printf("test-arg-parser: test --cpu-features registration and output\n\n");
+    {
+        auto has_arg = [](llama_example ex, const char * name) {
+            common_params p;
+            auto ctx = common_params_parser_init(p, ex);
+            for (const auto & opt : ctx.options) {
+                for (const auto & arg : opt.get_args()) {
+                    if (arg == name) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        assert(has_arg(LLAMA_EXAMPLE_COMMON, "--cpu-features"));
+        assert(has_arg(LLAMA_EXAMPLE_CLI, "--cpu-features"));
+
+        FILE * f = tmpfile();
+        assert(f != nullptr);
+        common_print_cpu_features(f);
+        fflush(f);
+        rewind(f);
+
+        std::unordered_set<std::string> names;
+        char line[256];
+        while (fgets(line, sizeof(line), f) != nullptr) {
+            const size_t n = strlen(line);
+            assert(n > 1 && line[n - 1] == '\n');
+            line[n - 1] = '\0';
+
+            const char * colon = strchr(line, ':');
+            assert(colon != nullptr && colon > line && colon[1] == ' ');
+            for (const char * p = line; p < colon; ++p) {
+                const bool ok = (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_';
+                assert(ok);
+            }
+
+            const char * value = colon + 2;
+            const bool yes_no = strcmp(value, "yes") == 0 || strcmp(value, "no") == 0;
+            if (!yes_no) {
+                assert(value[0] != '\0');
+                for (const char * p = value; *p != '\0'; ++p) {
+                    assert(*p >= '0' && *p <= '9');
+                }
+            }
+            names.emplace(line, static_cast<size_t>(colon - line));
+        }
+        fclose(f);
+        assert(!names.empty());
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+        assert(names.count("AVX") == 1);
+        assert(names.count("AVX2") == 1);
+        assert(names.count("AVX512") == 1);
+#elif defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
+        assert(names.count("NEON") == 1);
+        assert(names.count("ARM_FMA") == 1);
+        assert(names.count("FP16_VA") == 1);
+        assert(names.count("DOTPROD") == 1);
+        assert(names.count("MATMUL_INT8") == 1);
+        assert(names.count("SVE") == 1);
+        assert(names.count("SME") == 1);
+        assert(names.count("SME2") == 1);
+        assert(names.count("KLEIDIAI") == 1);
+#endif
+    }
 
     printf("test-arg-parser: test download functions\n\n");
     const char * GOOD_URL = "http://ggml.ai/";

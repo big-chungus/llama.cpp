@@ -1459,6 +1459,14 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ));
     add_opt(common_arg(
+        {"--cpu-features"},
+        "print CPU features detected by ggml and exit",
+        [](common_params &) {
+            common_print_cpu_features(stdout);
+            exit(0);
+        }
+    ));
+    add_opt(common_arg(
         {"-cl", "--cache-list"},
         "show list of models in cache",
         [](common_params &) {
