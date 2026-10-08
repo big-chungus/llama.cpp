@@ -775,7 +775,8 @@ void common_params_print_info(const common_params & params, bool print_devices =
 std::string common_params_get_system_info(const common_params & params);
 
 // CPU features reported by the loaded ggml CPU backend, one "NAME: yes/no" line.
-// SVE_CNT (SVE vector length in bytes) is printed only when the backend reports it.
+// SVE_CNT (SVE vector length in bytes) is included only when the backend reports it.
+std::string common_cpu_features_text();
 void common_print_cpu_features(FILE * out = stdout);
 
 bool parse_cpu_range(const std::string & range, bool(&boolmask)[GGML_MAX_N_THREADS]);

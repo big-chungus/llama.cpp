@@ -5,8 +5,6 @@
 #include "speculative.h"
 
 #include <cmath>
-#include <cstdio>
-#include <cstring>
 #include <limits>
 #include <string>
 #include <vector>
@@ -382,37 +380,30 @@ static void test(void) {
         assert(has_arg(LLAMA_EXAMPLE_COMMON, "--cpu-features"));
         assert(has_arg(LLAMA_EXAMPLE_CLI, "--cpu-features"));
 
-        FILE * f = tmpfile();
-        assert(f != nullptr);
-        common_print_cpu_features(f);
-        fflush(f);
-        rewind(f);
-
+        const std::string text = common_cpu_features_text();
+        std::istringstream in(text);
         std::unordered_set<std::string> names;
-        char line[256];
-        while (fgets(line, sizeof(line), f) != nullptr) {
-            const size_t n = strlen(line);
-            assert(n > 1 && line[n - 1] == '\n');
-            line[n - 1] = '\0';
-
-            const char * colon = strchr(line, ':');
-            assert(colon != nullptr && colon > line && colon[1] == ' ');
-            for (const char * p = line; p < colon; ++p) {
-                const bool ok = (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_';
+        std::string line;
+        while (std::getline(in, line)) {
+            assert(!line.empty());
+            const size_t colon = line.find(": ");
+            assert(colon != std::string::npos && colon > 0);
+            for (size_t i = 0; i < colon; ++i) {
+                const char c = line[i];
+                const bool ok = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
                 assert(ok);
             }
 
-            const char * value = colon + 2;
-            const bool yes_no = strcmp(value, "yes") == 0 || strcmp(value, "no") == 0;
+            const std::string value = line.substr(colon + 2);
+            const bool yes_no = value == "yes" || value == "no";
             if (!yes_no) {
-                assert(value[0] != '\0');
-                for (const char * p = value; *p != '\0'; ++p) {
-                    assert(*p >= '0' && *p <= '9');
+                assert(!value.empty());
+                for (char c : value) {
+                    assert(c >= '0' && c <= '9');
                 }
             }
-            names.emplace(line, static_cast<size_t>(colon - line));
+            names.insert(line.substr(0, colon));
         }
-        fclose(f);
         assert(!names.empty());
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)

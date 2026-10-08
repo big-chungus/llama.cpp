@@ -462,23 +462,77 @@ static const char * cpu_feature_value(const std::vector<std::pair<std::string, s
     return nullptr;
 }
 
-static void print_cpu_feature_yes_no(FILE * out, const std::vector<std::pair<std::string, std::string>> & feats, const char * name) {
+static void append_cpu_feature_yes_no(std::string & out, const std::vector<std::pair<std::string, std::string>> & feats, const char * name) {
     const char * value = cpu_feature_value(feats, name);
     const bool yes = value != nullptr && value[0] != '\0' && strcmp(value, "0") != 0;
-    fprintf(out, "%s: %s\n", name, yes ? "yes" : "no");
+    out += name;
+    out += yes ? ": yes\n" : ": no\n";
 }
 
-static void print_cpu_feature_names(FILE * out, const std::vector<std::pair<std::string, std::string>> & feats, const char * const * names, size_t n_names) {
+static void append_cpu_feature_names(std::string & out, const std::vector<std::pair<std::string, std::string>> & feats, const char * const * names, size_t n_names) {
     for (size_t i = 0; i < n_names; ++i) {
-        print_cpu_feature_yes_no(out, feats, names[i]);
+        append_cpu_feature_yes_no(out, feats, names[i]);
         // SVE vector length in bytes; ggml only reports it when the length is known
         if (strcmp(names[i], "SVE") == 0) {
             const char * sve_cnt = cpu_feature_value(feats, "SVE_CNT");
             if (sve_cnt != nullptr && sve_cnt[0] != '\0' && strcmp(sve_cnt, "0") != 0) {
-                fprintf(out, "SVE_CNT: %s\n", sve_cnt);
+                out += "SVE_CNT: ";
+                out += sve_cnt;
+                out += '\n';
             }
         }
     }
+}
+
+std::string common_cpu_features_text() {
+    std::string out;
+    const auto feats = cpu_backend_feature_list();
+
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
+    static const char * names[] = {
+        "NEON", "ARM_FMA", "FP16_VA", "DOTPROD", "MATMUL_INT8", "SVE", "SME", "SME2", "KLEIDIAI",
+    };
+    append_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    static const char * names[] = {
+        "SSE3", "SSSE3", "AVX", "AVX_VNNI", "AVX2", "F16C", "FMA", "BMI2",
+        "AVX512", "AVX512_VBMI", "AVX512_VNNI", "AVX512_BF16", "AMX_INT8",
+    };
+    append_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__riscv)
+    static const char * names[] = { "RISCV_V" };
+    append_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+    const char * rvv_vlen = cpu_feature_value(feats, "RVV_VLEN");
+    if (rvv_vlen != nullptr && rvv_vlen[0] != '\0' && strcmp(rvv_vlen, "0") != 0) {
+        out += "RVV_VLEN: ";
+        out += rvv_vlen;
+        out += '\n';
+    }
+#elif defined(__POWERPC__) || defined(__powerpc__) || defined(__ppc__) || defined(__PPC__)
+    static const char * names[] = { "VSX", "VXE" };
+    append_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__s390x__)
+    static const char * names[] = { "VXE" };
+    append_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#elif defined(__wasm_simd128__) || defined(__wasm__)
+    static const char * names[] = { "WASM_SIMD" };
+    append_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
+#else
+    for (const auto & feat : feats) {
+        out += feat.first;
+        out += ": ";
+        if (feat.second == "1") {
+            out += "yes";
+        } else if (feat.second == "0" || feat.second.empty()) {
+            out += "no";
+        } else {
+            out += feat.second;
+        }
+        out += '\n';
+    }
+#endif
+
+    return out;
 }
 
 void common_print_cpu_features(FILE * out) {
@@ -486,47 +540,10 @@ void common_print_cpu_features(FILE * out) {
         out = stdout;
     }
 
-    const auto feats = cpu_backend_feature_list();
-
-#if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
-    static const char * names[] = {
-        "NEON", "ARM_FMA", "FP16_VA", "DOTPROD", "MATMUL_INT8", "SVE", "SME", "SME2", "KLEIDIAI",
-    };
-    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
-#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-    static const char * names[] = {
-        "SSE3", "SSSE3", "AVX", "AVX_VNNI", "AVX2", "F16C", "FMA", "BMI2",
-        "AVX512", "AVX512_VBMI", "AVX512_VNNI", "AVX512_BF16", "AMX_INT8",
-    };
-    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
-#elif defined(__riscv)
-    static const char * names[] = { "RISCV_V" };
-    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
-    const char * rvv_vlen = cpu_feature_value(feats, "RVV_VLEN");
-    if (rvv_vlen != nullptr && rvv_vlen[0] != '\0' && strcmp(rvv_vlen, "0") != 0) {
-        fprintf(out, "RVV_VLEN: %s\n", rvv_vlen);
+    const std::string text = common_cpu_features_text();
+    if (!text.empty()) {
+        fwrite(text.data(), 1, text.size(), out);
     }
-#elif defined(__POWERPC__) || defined(__powerpc__) || defined(__ppc__) || defined(__PPC__)
-    static const char * names[] = { "VSX", "VXE" };
-    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
-#elif defined(__s390x__)
-    static const char * names[] = { "VXE" };
-    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
-#elif defined(__wasm_simd128__) || defined(__wasm__)
-    static const char * names[] = { "WASM_SIMD" };
-    print_cpu_feature_names(out, feats, names, sizeof(names) / sizeof(names[0]));
-#else
-    for (const auto & feat : feats) {
-        if (feat.second == "1") {
-            fprintf(out, "%s: yes\n", feat.first.c_str());
-        } else if (feat.second == "0" || feat.second.empty()) {
-            fprintf(out, "%s: no\n", feat.first.c_str());
-        } else {
-            fprintf(out, "%s: %s\n", feat.first.c_str(), feat.second.c_str());
-        }
-    }
-#endif
-
     fflush(out);
 }
 
