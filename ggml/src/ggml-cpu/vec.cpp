@@ -121,9 +121,20 @@ void ggml_vec_dot_f32(int n, float * GGML_RESTRICT s, size_t bs, const float * G
         GGML_F32_VEC_REDUCE(sumf, sum);
 
         // leftovers
+#if defined(__ARM_NEON) && defined(__aarch64__)
+        // 4-wide NEON tail, then a scalar remainder
+        const int n4 = n & ~(GGML_F32_EPR - 1);
+        for (int i = np; i < n4; i += GGML_F32_EPR) {
+            sumf += vaddvq_f32(vmulq_f32(vld1q_f32(x + i), vld1q_f32(y + i)));
+        }
+        for (int i = n4; i < n - 1; ++i) {
+            sumf += x[i]*y[i];
+        }
+#else
         for (int i = np; i < n; ++i) {
             sumf += x[i]*y[i];
         }
+#endif
     #endif
 #else
     // scalar
